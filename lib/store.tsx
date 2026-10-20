@@ -56,24 +56,44 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (saveTimer.current) clearTimeout(saveTimer.current)
     pendingStateRef.current = { accounts, prompts }
     saveTimer.current = setTimeout(async () => {
-      if (savingRef.current || !pendingStateRef.current) return
+      if (savingRef.current) return
       savingRef.current = true
-      const snapshot = pendingStateRef.current
       try {
-        const { error } = await supabase.from(APP_STATE_TABLE).upsert({ id: APP_STATE_ID, data: snapshot, updated_at: now() }, { onConflict: "id" })
-        if (error) throw error
-        if (pendingStateRef.current === snapshot) {
-          pendingStateRef.current = null
-          dirtyRef.current = false
+        while (pendingStateRef.current) {
+          const snapshot = pendingStateRef.current
+          const { error } = await supabase
+            .from(APP_STATE_TABLE)
+            .upsert({ id: APP_STATE_ID, data: snapshot, updated_at: now() }, { onConflict: "id" })
+          if (error) throw error
+          if (pendingStateRef.current === snapshot) {
+            pendingStateRef.current = null
+            dirtyRef.current = false
+          }
         }
       } catch (error) {
-        console.log("[v0] erro ao salvar biblioteca:", error)
+        console.log("[v0] erro ao salvar biblioteca no Supabase:", error)
       } finally {
         savingRef.current = false
+        if (pendingStateRef.current) {
+          saveTimer.current = setTimeout(() => {
+            if (pendingStateRef.current && !savingRef.current) {
+              window.dispatchEvent(new Event("library-save-retry"))
+            }
+          }, 500)
+        }
       }
     }, 500)
     return () => { if (saveTimer.current) clearTimeout(saveTimer.current) }
   }, [accounts, prompts, hydrated])
+
+  useEffect(() => {
+    const retry = () => {
+      if (!hydrated || savingRef.current || !pendingStateRef.current) return
+      setAccounts((items) => [...items])
+    }
+    window.addEventListener("library-save-retry", retry)
+    return () => window.removeEventListener("library-save-retry", retry)
+  }, [hydrated])
 
   const markDirty = () => { dirtyRef.current = true }
   const addAccount = useCallback((data: Omit<Account, "id" | "createdAt">) => { markDirty(); setAccounts((items) => [{ ...data, id: uid(), createdAt: now() }, ...items]) }, [])
