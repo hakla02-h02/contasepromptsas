@@ -46,9 +46,17 @@ export function AuthGate({ children }: { children: ReactNode }) {
     if (valid && pathname === "/login") router.replace("/")
   }, [pathname, router])
 
-  if (!ready) return <div className="min-h-screen bg-black" />
+  if (!ready) {
+    return <div className="min-h-screen bg-black" aria-label="Carregando acesso" />
+  }
   if (pathname === "/login") return <>{children}</>
-  if (!authorized) return null
+  if (!authorized) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-black px-6 text-sm text-[#777]">
+        Redirecionando para o acesso...
+      </div>
+    )
+  }
   return <>{children}</>
 }
 
