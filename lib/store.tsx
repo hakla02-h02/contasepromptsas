@@ -28,6 +28,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [prompts, setPrompts] = useState<Prompt[]>([])
   const [hydrated, setHydrated] = useState(false)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const dirtyRef = useRef(false)
+  const savingRef = useRef(false)
+  const pendingStateRef = useRef<StoreData | null>(null)
 
   useEffect(() => {
     let active = true
@@ -49,25 +52,36 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, [])
 
   useEffect(() => {
-    if (!hydrated) return
+    if (!hydrated || !dirtyRef.current) return
     if (saveTimer.current) clearTimeout(saveTimer.current)
+    pendingStateRef.current = { accounts, prompts }
     saveTimer.current = setTimeout(async () => {
+      if (savingRef.current || !pendingStateRef.current) return
+      savingRef.current = true
+      const snapshot = pendingStateRef.current
       try {
-        const { error } = await supabase.from(APP_STATE_TABLE).upsert({ id: APP_STATE_ID, data: { accounts, prompts }, updated_at: now() })
+        const { error } = await supabase.from(APP_STATE_TABLE).upsert({ id: APP_STATE_ID, data: snapshot, updated_at: now() }, { onConflict: "id" })
         if (error) throw error
+        if (pendingStateRef.current === snapshot) {
+          pendingStateRef.current = null
+          dirtyRef.current = false
+        }
       } catch (error) {
         console.log("[v0] erro ao salvar biblioteca:", error)
+      } finally {
+        savingRef.current = false
       }
-    }, 400)
+    }, 500)
     return () => { if (saveTimer.current) clearTimeout(saveTimer.current) }
   }, [accounts, prompts, hydrated])
 
-  const addAccount = useCallback((data: Omit<Account, "id" | "createdAt">) => setAccounts((items) => [{ ...data, id: uid(), createdAt: now() }, ...items]), [])
-  const updateAccount = useCallback((id: string, patch: Partial<Omit<Account, "id" | "createdAt">>) => setAccounts((items) => items.map((item) => item.id === id ? { ...item, ...patch } : item)), [])
-  const deleteAccount = useCallback((id: string) => setAccounts((items) => items.filter((item) => item.id !== id)), [])
-  const addPrompt = useCallback((data: Pick<Prompt, "title" | "content">) => setPrompts((items) => [{ ...data, id: uid(), createdAt: now(), updatedAt: now(), archived: false, pinned: false, color: "default" }, ...items]), [])
-  const updatePrompt = useCallback((id: string, patch: Partial<Pick<Prompt, "title" | "content" | "archived" | "pinned" | "color">>) => setPrompts((items) => items.map((item) => item.id === id ? { ...item, ...patch, updatedAt: now() } : item)), [])
-  const deletePrompt = useCallback((id: string) => setPrompts((items) => items.filter((item) => item.id !== id)), [])
+  const markDirty = () => { dirtyRef.current = true }
+  const addAccount = useCallback((data: Omit<Account, "id" | "createdAt">) => { markDirty(); setAccounts((items) => [{ ...data, id: uid(), createdAt: now() }, ...items]) }, [])
+  const updateAccount = useCallback((id: string, patch: Partial<Omit<Account, "id" | "createdAt">>) => { markDirty(); setAccounts((items) => items.map((item) => item.id === id ? { ...item, ...patch } : item)) }, [])
+  const deleteAccount = useCallback((id: string) => { markDirty(); setAccounts((items) => items.filter((item) => item.id !== id)) }, [])
+  const addPrompt = useCallback((data: Pick<Prompt, "title" | "content">) => { markDirty(); setPrompts((items) => [{ ...data, id: uid(), createdAt: now(), updatedAt: now(), archived: false, pinned: false, color: "default" }, ...items]) }, [])
+  const updatePrompt = useCallback((id: string, patch: Partial<Pick<Prompt, "title" | "content" | "archived" | "pinned" | "color">>) => { markDirty(); setPrompts((items) => items.map((item) => item.id === id ? { ...item, ...patch, updatedAt: now() } : item)) }, [])
+  const deletePrompt = useCallback((id: string) => { markDirty(); setPrompts((items) => items.filter((item) => item.id !== id)) }, [])
 
   return <StoreContext.Provider value={{ accounts, prompts, hydrated, addAccount, updateAccount, deleteAccount, addPrompt, updatePrompt, deletePrompt }}>{children}</StoreContext.Provider>
 }
