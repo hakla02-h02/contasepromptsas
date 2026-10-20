@@ -11,6 +11,7 @@ interface StoreData {
 
 interface StoreContextValue extends StoreData {
   hydrated: boolean
+  saveState: "idle" | "saving" | "saved" | "error"
   addAccount: (data: Omit<Account, "id" | "createdAt">) => void
   updateAccount: (id: string, patch: Partial<Omit<Account, "id" | "createdAt">>) => void
   deleteAccount: (id: string) => void
@@ -27,6 +28,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [accounts, setAccounts] = useState<Account[]>([])
   const [prompts, setPrompts] = useState<Prompt[]>([])
   const [hydrated, setHydrated] = useState(false)
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle")
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const dirtyRef = useRef(false)
   const savingRef = useRef(false)
@@ -58,6 +60,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     saveTimer.current = setTimeout(async () => {
       if (savingRef.current) return
       savingRef.current = true
+      setSaveState("saving")
       try {
         while (pendingStateRef.current) {
           const snapshot = pendingStateRef.current
@@ -68,10 +71,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           if (pendingStateRef.current === snapshot) {
             pendingStateRef.current = null
             dirtyRef.current = false
+            setSaveState("saved")
           }
         }
       } catch (error) {
         console.log("[v0] erro ao salvar biblioteca no Supabase:", error)
+        setSaveState("error")
       } finally {
         savingRef.current = false
         if (pendingStateRef.current) {
@@ -103,7 +108,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const updatePrompt = useCallback((id: string, patch: Partial<Pick<Prompt, "title" | "content" | "archived" | "pinned" | "color">>) => { markDirty(); setPrompts((items) => items.map((item) => item.id === id ? { ...item, ...patch, updatedAt: now() } : item)) }, [])
   const deletePrompt = useCallback((id: string) => { markDirty(); setPrompts((items) => items.filter((item) => item.id !== id)) }, [])
 
-  return <StoreContext.Provider value={{ accounts, prompts, hydrated, addAccount, updateAccount, deleteAccount, addPrompt, updatePrompt, deletePrompt }}>{children}</StoreContext.Provider>
+  return <StoreContext.Provider value={{ accounts, prompts, hydrated, saveState, addAccount, updateAccount, deleteAccount, addPrompt, updatePrompt, deletePrompt }}>{children}</StoreContext.Provider>
 }
 
 export function useStore() {
