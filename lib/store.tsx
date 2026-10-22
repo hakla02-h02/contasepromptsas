@@ -66,7 +66,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           const snapshot = pendingStateRef.current
           const { error } = await supabase
             .from(APP_STATE_TABLE)
-            .upsert({ id: APP_STATE_ID, data: snapshot, updated_at: now() }, { onConflict: "id" })
+            .upsert({ id: APP_STATE_ID, data: snapshot }, { onConflict: "id" })
           if (error) throw error
           if (pendingStateRef.current === snapshot) {
             pendingStateRef.current = null
